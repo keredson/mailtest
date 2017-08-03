@@ -7,6 +7,7 @@ class TestMailTest(unittest.TestCase):
     with mailtest.Server(smtp_port=1025) as s:
       sender = smtplib.SMTP('localhost', 1025)
       sender.sendmail('author@example.com', ['recipient@example.com'], 'hi')
+      sender.close()
       self.assertEqual(len(s.emails), 1)
       self.assertEqual(s.emails[0].frm, 'author@example.com')
       self.assertEqual(s.emails[0].to, ['recipient@example.com'])
@@ -18,6 +19,7 @@ class TestMailTest(unittest.TestCase):
       c = 1000 # ~0.240s
       for i in range(c):
         sender.sendmail('author@example.com', ['recipient@example.com'], 'msg #%i' % i)
+      sender.close()
       self.assertEqual(len(s.emails), c)
 
 

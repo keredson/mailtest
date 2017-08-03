@@ -1,4 +1,4 @@
-import asyncore, collections, smtpd, threading
+import asyncore, collections, smtpd, sys, threading
 
 
 __version__ = '1.0.0'
@@ -12,7 +12,7 @@ class _SMTPServer(smtpd.SMTPServer):
 
 class Server(object):
 
-  def __init__(self, smtp_port):
+  def __init__(self, smtp_port=1025):
     self._smtp_port = smtp_port
     self.emails = []
 
@@ -20,7 +20,10 @@ class Server(object):
     self.emails.append(email)
 
   def __enter__(self):
-    self.server = _SMTPServer(('localhost', self._smtp_port), None)
+    if sys.version_info[0] < 3:
+      self.server = _SMTPServer(('localhost', self._smtp_port), None)
+    else:
+      self.server = _SMTPServer(('localhost', self._smtp_port), None, decode_data=True)
     self.server.callback = self._callback
     t = threading.Thread(target=asyncore.loop)
     t.start()
