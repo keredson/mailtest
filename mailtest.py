@@ -1,9 +1,9 @@
 from __future__ import print_function
-import asyncore, collections, json, smtpd, sys, threading, time
+import asyncore, collections, email, json, smtpd, sys, threading, time
 from wsgiref.simple_server import make_server, WSGIRequestHandler, WSGIServer
 import bottle
 
-__version__ = '1.1.1'
+__version__ = '1.1.2'
 
 
 try:
@@ -15,9 +15,19 @@ except ImportError:
 class _SMTPServer(smtpd.SMTPServer):
 
   def process_message(self, peer, mailfrom, rcpttos, data):
-    email = Email(frm=mailfrom, to=rcpttos, msg=data)
+    b = email.message_from_string(data)
+    body_parts = []
+    if b.is_multipart():
+      for part in b.walk():
+        ctype = part.get_content_type()
+        cdispo = str(part.get('Content-Disposition'))
+        if ctype in ('text/plain','text/html') and 'attachment' not in cdispo:
+          body_parts.append(part.get_payload(decode=True).decode())
+    else:
+      body_parts = [b.get_payload(decode=True).decode()]
+    e = Email(frm=mailfrom, to=rcpttos, raw=data, msg='\n'.join(body_parts))
     for callback in self.callbacks.values():
-      callback(email)
+      callback(e)
 
 _smtp_servers = {}
 
@@ -97,7 +107,7 @@ class Server(object):
       del _sendgrid_servers[self._sendgrid_port].callbacks[id(self)]
 
 
-Email = collections.namedtuple('Email', ['frm','to','msg'])
+Email = collections.namedtuple('Email', ['frm','to','msg','raw'])
 
 
 
