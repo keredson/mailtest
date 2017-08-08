@@ -3,7 +3,7 @@ import asyncore, collections, json, smtpd, sys, threading, time
 from wsgiref.simple_server import make_server, WSGIRequestHandler, WSGIServer
 import bottle
 
-__version__ = '1.1.0'
+__version__ = '1.1.1'
 
 
 try:
@@ -21,6 +21,35 @@ class _SMTPServer(smtpd.SMTPServer):
 
 _smtp_servers = {}
 
+class _SendgridServer(object):
+  def __init__(self, port):
+    self.port = port
+    self.app = app = bottle.Bottle()
+
+    @app.get('/v3/templates')
+    def templates():
+      return {'templates': []}
+    
+    @app.post('/v3/mail/send')
+    def send():
+      d = bottle.request.json
+      for p in d['personalizations']:
+        email = Email(frm=d['from']['email'], to=[addr['email'] for addr in p['to']], msg=json.dumps(p, indent=2))
+        for callback in self.callbacks.values():
+          callback(email)
+      return {}
+
+  def start(self):
+    def f():
+      self._sendgrid_server = make_server('localhost', self.port, self.app, WSGIServer, WSGIRequestHandler)
+      self._sendgrid_server.serve_forever()
+    t = threading.Thread(target=f)
+    t.daemon = True
+    t.start()
+    time.sleep(.1)
+
+_sendgrid_servers = {}
+
 
 class Server(object):
 
@@ -29,20 +58,6 @@ class Server(object):
     self._sendgrid_port = sendgrid_port
     self._sendgrid_server = None
     self.emails = []
-    if sendgrid_port:
-      self._sendgrid_app = app = bottle.Bottle()
-
-      @app.get('/v3/templates')
-      def templates():
-        return {'templates': []}
-      
-      @app.post('/v3/mail/send')
-      def send():
-        d = bottle.request.json
-        for p in d['personalizations']:
-          email = Email(frm=d['from']['email'], to=[addr['email'] for addr in p['to']], msg=json.dumps(p, indent=2))
-          self.emails.append(email)
-        return {}
       
 
   def _callback(self, email):
@@ -63,13 +78,12 @@ class Server(object):
     _smtp_server.callbacks[id(self)] = self._callback
   
   def _start_sendgrid_server(self):
-    def f():
-      self._sendgrid_server = make_server('localhost', self._sendgrid_port, self._sendgrid_app, WSGIServer, WSGIRequestHandler)
-      self._sendgrid_server.serve_forever(poll_interval=.1)
-    t = threading.Thread(target=f)
-    t.start()
-    time.sleep(.1)
-    
+    server = _sendgrid_servers.get(self._sendgrid_port)
+    if not server:
+      _sendgrid_servers[self._sendgrid_port] = server = _SendgridServer(self._sendgrid_port)
+      server.callbacks = {}
+      server.start()
+    server.callbacks[id(self)] = self._callback
 
   def __enter__(self):
     if self._smtp_port: self._start_smtp_server()
@@ -79,10 +93,8 @@ class Server(object):
   def __exit__(self, type, value, tb):
     if self._smtp_port:
       del _smtp_servers[self._smtp_port].callbacks[id(self)]
-    if self._sendgrid_server:
-      #print('closing', self._sendgrid_server)
-      self._sendgrid_server.shutdown()
-      self._sendgrid_server.server_close()
+    if self._sendgrid_port:
+      del _sendgrid_servers[self._sendgrid_port].callbacks[id(self)]
 
 
 Email = collections.namedtuple('Email', ['frm','to','msg'])
