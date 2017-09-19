@@ -3,7 +3,7 @@ import asyncore, collections, email, json, smtpd, sys, threading, time
 from wsgiref.simple_server import make_server, WSGIRequestHandler, WSGIServer
 import bottle
 
-__version__ = '1.1.2'
+__version__ = '1.1.3'
 
 
 try:
@@ -44,7 +44,8 @@ class _SendgridServer(object):
     def send():
       d = bottle.request.json
       for p in d['personalizations']:
-        email = Email(frm=d['from']['email'], to=[addr['email'] for addr in p['to']], msg=json.dumps(p, indent=2))
+        msg = json.dumps(p, indent=2)
+        email = Email(frm=d['from']['email'], to=[addr['email'] for addr in p['to']], msg=msg, raw=msg)
         for callback in self.callbacks.values():
           callback(email)
       return {}
